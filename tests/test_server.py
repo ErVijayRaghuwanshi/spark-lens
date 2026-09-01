@@ -1,5 +1,6 @@
 import pytest
 import respx
+from sparklens.config import settings
 from sparklens.server import (
     mcp,
     get_spark_version,
@@ -55,7 +56,7 @@ async def test_mcp_prompt_registration():
 @pytest.mark.asyncio
 @respx.mock
 async def test_get_spark_version_tool(mock_spark4_env):
-    respx.get("http://localhost:18080/api/v1/applications/app-4x/environment").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x/environment").respond(
         status_code=200,
         json=mock_spark4_env
     )
@@ -69,19 +70,19 @@ async def test_get_spark_version_tool(mock_spark4_env):
 @pytest.mark.asyncio
 @respx.mock
 async def test_analyze_application_tool(mock_spark4_env):
-    respx.get("http://localhost:18080/api/v1/applications/app-4x").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x").respond(
         status_code=200,
         json={"name": "SparkETL-4x", "attempts": [{"duration": 120000}]}
     )
-    respx.get("http://localhost:18080/api/v1/applications/app-4x/jobs").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x/jobs").respond(
         status_code=200,
         json=[{"jobId": 1, "status": "SUCCEEDED"}]
     )
-    respx.get("http://localhost:18080/api/v1/applications/app-4x/stages").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x/stages").respond(
         status_code=200,
         json=[{"stageId": 1, "status": "COMPLETE"}]
     )
-    respx.get("http://localhost:18080/api/v1/applications/app-4x/environment").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x/environment").respond(
         status_code=200,
         json=mock_spark4_env
     )
@@ -95,7 +96,7 @@ async def test_analyze_application_tool(mock_spark4_env):
 @pytest.mark.asyncio
 @respx.mock
 async def test_find_failed_stages_with_spark4_ansi_error(mock_spark4_env):
-    respx.get("http://localhost:18080/api/v1/applications/app-4x/stages").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x/stages").respond(
         status_code=200,
         json=[
             {
@@ -110,7 +111,7 @@ async def test_find_failed_stages_with_spark4_ansi_error(mock_spark4_env):
             }
         ]
     )
-    respx.get("http://localhost:18080/api/v1/applications/app-4x/environment").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-4x/environment").respond(
         status_code=200,
         json=mock_spark4_env
     )
@@ -125,7 +126,7 @@ async def test_find_failed_stages_with_spark4_ansi_error(mock_spark4_env):
 @pytest.mark.asyncio
 @respx.mock
 async def test_check_spark_compatibility_tool(mock_spark3_env):
-    respx.get("http://localhost:18080/api/v1/applications/app-3x/environment").respond(
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-3x/environment").respond(
         status_code=200,
         json=mock_spark3_env
     )

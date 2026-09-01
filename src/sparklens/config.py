@@ -1,11 +1,15 @@
 import os
 from typing import Optional
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+# Automatically load environment variables from .env file if present
+load_dotenv()
 
 class SparkLensSettings(BaseModel):
     """Configuration settings for SparkLens MCP server."""
     spark_history_url: str = Field(
-        default="http://localhost:18080",
+        default="http://localhost:18088",
         description="Root URL of the Apache Spark History Server."
     )
     spark_auth_type: str = Field(
@@ -45,7 +49,7 @@ class SparkLensSettings(BaseModel):
     def from_env(cls) -> "SparkLensSettings":
         """Load configuration from environment variables."""
         return cls(
-            spark_history_url=os.environ.get("SPARK_HISTORY_URL", "http://localhost:18080").rstrip("/"),
+            spark_history_url=os.environ.get("SPARK_HISTORY_URL", "http://localhost:18088").rstrip("/"),
             spark_auth_type=os.environ.get("SPARK_AUTH_TYPE", "none").lower(),
             spark_username=os.environ.get("SPARK_USERNAME") or None,
             spark_password=os.environ.get("SPARK_PASSWORD") or None,
