@@ -4,11 +4,34 @@ version = "0.2.0"
 description = "A Model Context Protocol (MCP) server for Apache Spark 3.x & Spark 4.x observability, diagnostics, and migration auditing"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "Vijay Raghuwanshi", email = "ervijayraghuwanshi@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: System :: Monitoring",
+]
 dependencies = [
     "fastmcp>=0.1.0",
     "httpx>=0.24.0",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ErVijayRaghuwanshi/spark-lens"
+Repository = "https://github.com/ErVijayRaghuwanshi/spark-lens.git"
+Issues = "https://github.com/ErVijayRaghuwanshi/spark-lens/issues"
+Documentation = "https://github.com/ErVijayRaghuwanshi/spark-lens#readme"
 
 [project.scripts]
 sparklens = "sparklens.server:main"

@@ -1,5 +1,6 @@
 # SparkLens 🔍 Spark Observability & AI-Assisted Troubleshooting
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-ErVijayRaghuwanshi%2Fspark--lens-blue?logo=github)](https://github.com/ErVijayRaghuwanshi/spark-lens)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastMCP](https://img.shields.io/badge/MCP-FastMCP-orange.svg)](https://github.com/prefecthq/fastmcp)
@@ -58,9 +59,13 @@ spark-lens/
 - Python 3.10+
 - Access to an Apache Spark History Server (Spark 3.x or 4.x)
 
-### 2. Installation & Running with uv (Recommended)
+### 2. Clone & Run with uv (Recommended)
 
 ```bash
+# Clone the repository
+git clone https://github.com/ErVijayRaghuwanshi/spark-lens.git
+cd spark-lens
+
 # Create a .env file from template
 cp .env.example .env
 
@@ -100,7 +105,7 @@ Add SparkLens to your `claude_desktop_config.json` (`~/Library/Application Suppo
       "command": "uv",
       "args": [
         "--directory",
-        "/Users/ervijay/Documents/Programs/Repo/spark-lens",
+        "/path/to/spark-lens",
         "run",
         "python",
         "-m",
