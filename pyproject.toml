@@ -1,0 +1,25 @@
+[project]
+name = "sparklens"
+version = "0.2.0"
+description = "A Model Context Protocol (MCP) server for Apache Spark 3.x & Spark 4.x observability, diagnostics, and migration auditing"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=0.1.0",
+    "httpx>=0.24.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+sparklens = "sparklens.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+]
