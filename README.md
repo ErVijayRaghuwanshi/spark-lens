@@ -12,6 +12,7 @@
 
 ## 🚀 Key Features
 
+* **Apache Livy-Next & Spark Connect Integration**: Manage interactive Spark Connect sessions, submit SQL statements, inspect structured tabular outputs, and correlate session errors with Spark History Server metrics.
 * **Multi-Version Spark Support (3.x & 4.x)**: Automatically detects the Spark version per application, adapting diagnostic heuristics and recommendations.
 * **Spark 4.0 Structured Error Framework & ANSI SQL**: Parses structured error classes (such as `[CANNOT_DIVIDE_BY_ZERO]`, `[CAST_INVALID_INPUT]`, `[NUMERIC_VALUE_OUT_OF_RANGE]`) and delivers targeted ANSI mode remediation.
 * **Spark 4.x Migration Readiness Auditor**: Evaluates Spark 3.x application properties against Spark 4.x breaking changes (Java 17 baseline, Scala 2.13, RocksDB shuffle backend, removed JVM flags, ANSI defaults).
@@ -45,6 +46,7 @@ spark-lens/
 │   ├── test_client.py        # Client & authentication tests
 │   ├── test_compatibility.py # Migration auditor tests
 │   ├── test_diagnostics.py   # Diagnostics & skew analysis tests
+│   ├── test_livy_client.py   # Livy-Next client & session/statement tests
 │   ├── test_server.py        # FastMCP tool & prompt tests
 │   └── test_version.py       # Version detection & feature matrix tests
 ├── pyproject.toml            # Build, dependencies, and script entry points
@@ -156,6 +158,16 @@ Add SparkLens to your `claude_desktop_config.json` (`~/Library/Application Suppo
 | `explain_stage_failure`| Diagnostic | Deep-dive root-cause analysis for a specific failed stage. |
 | `find_data_skew` | Diagnostic | Analyzes task runtime distribution and memory/disk spills with version-aware tuning advice. |
 | `check_spark_compatibility` | Migration | Audits Spark 3.x applications against Spark 4.x breaking changes & deprecated configs. |
+| `list_livy_sessions` | Livy Session | Lists active interactive sessions in Apache Livy-Next (Spark Connect). |
+| `get_livy_session` | Livy Session | Gets session details, status, kind, and linked Spark `appId`. |
+| `create_livy_session` | Livy Session | Creates an interactive session (`spark`, `sql`, `pyspark`). |
+| `delete_livy_session` | Livy Session | Terminates and cleans up an interactive session. |
+| `list_livy_statements` | Livy Statement | Lists statements submitted to a Livy session. |
+| `get_livy_statement` | Livy Statement | Retrieves statement execution progress, status, and output. |
+| `submit_livy_statement` | Livy Statement | Submits SQL/code asynchronously to a session. |
+| `cancel_livy_statement` | Livy Statement | Cancels an ongoing statement execution. |
+| `run_livy_statement` | Livy Execution | Submits SQL/code, polls for completion, and returns structured schema/rows or Spark 4 ANSI remediation. |
+| `diagnose_livy_session` | Livy Diagnostic | Correlates a Livy session with Spark History Server application health and statement errors. |
 
 ---
 
@@ -165,6 +177,8 @@ Add SparkLens to your `claude_desktop_config.json` (`~/Library/Application Suppo
 - `optimize_application`: Guides an LLM through performance auditing, AQE tuning, and skew mitigation.
 - `audit_spark4_migration`: Generates a Spark 4.0 migration readiness report and remediation checklist.
 - `explain_sql_query`: Explains physical SQL query plans and identifies optimization opportunities.
+- `troubleshoot_livy_session`: Guides an LLM through troubleshooting interactive Livy session errors and correlating with Spark History.
+- `execute_and_verify_sql`: Guides an LLM through executing SQL via Livy-Next, reviewing rows, and remediating ANSI SQL errors.
 
 ---
 

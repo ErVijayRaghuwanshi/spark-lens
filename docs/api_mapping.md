@@ -24,6 +24,21 @@ This document details how raw Apache Spark History Server REST API endpoints map
 | Composite (`/applications`, `/jobs`, `/stages`, `/environment`) | `analyze_application` | Diagnostic | `app_id` (str) | High-level execution health report with Spark 3.x/4.x version classification. |
 | Composite (`/environment`) | `check_spark_compatibility` | Migration | `app_id` (str) | Audits Spark 3.x app configuration against Spark 4.x breaking changes, LevelDB removal, CMS GC, and ANSI SQL. |
 
+## Livy-Next REST API to MCP Tool Mapping
+
+| Livy-Next REST Endpoint | SparkLens MCP Tool | Scope | Inputs | Purpose & Capabilities |
+|---|---|---|---|---|
+| `GET /sessions` | `list_livy_sessions` | Livy Session | `from_idx` (int), `limit` (int) | List active interactive Spark Connect sessions. |
+| `GET /sessions/{id}` | `get_livy_session` | Livy Session | `session_id` (int) | Details, state, and linked Spark `appId`. |
+| `POST /sessions` | `create_livy_session` | Livy Session | `name`, `kind`, `proxy_user`, `conf`, `jars` | Create interactive session connected to Spark Connect. |
+| `DELETE /sessions/{id}` | `delete_livy_session` | Livy Session | `session_id` (int) | Terminate and clean up session. |
+| `GET /sessions/{id}/statements` | `list_livy_statements` | Livy Statement | `session_id` (int) | List all statements submitted to session. |
+| `GET /sessions/{id}/statements/{statementId}` | `get_livy_statement` | Livy Statement | `session_id` (int), `statement_id` (int) | Get execution state, progress, and results. |
+| `POST /sessions/{id}/statements` | `submit_livy_statement` | Livy Statement | `session_id` (int), `code` (str) | Submit code or SQL query asynchronously. |
+| `POST /sessions/{id}/statements/{statementId}/cancel` | `cancel_livy_statement` | Livy Statement | `session_id` (int), `statement_id` (int) | Cancel active or queued statement execution. |
+| Composite (`POST /statements` + poll `GET /statements/{id}`) | `run_livy_statement` | Livy Execution | `session_id` (int), `code` (str), `timeout_seconds` (float) | Submit and wait for statement completion; provides structured tabular output or Spark 4 ANSI error remediation. |
+| Composite (`GET /sessions/{id}`, `/statements`, History API) | `diagnose_livy_session` | Livy Diagnostic | `session_id` (int) | Correlate session failures and logs with Spark History Server application metrics (`appId`). |
+
 ---
 
 ## MCP Prompts Available
@@ -34,3 +49,6 @@ This document details how raw Apache Spark History Server REST API endpoints map
 | `optimize_application` | `app_id` (str) | Guides LLM through auditing bottlenecks, runtime skew, memory spills, and AQE tuning. |
 | `audit_spark4_migration` | `app_id` (str) | Guides LLM through creating a Spark 4.0 migration readiness report and checklist. |
 | `explain_sql_query` | `app_id` (str), `sql_id` (int) | Guides LLM through inspecting and optimizing Spark SQL physical query plans. |
+| `troubleshoot_livy_session` | `session_id` (int) | Guides LLM through troubleshooting interactive Livy session failures and correlating with Spark History. |
+| `execute_and_verify_sql` | `session_id` (int), `sql_query` (str) | Guides LLM through executing SQL via Livy-Next, reviewing results, and remediating ANSI SQL errors. |
+

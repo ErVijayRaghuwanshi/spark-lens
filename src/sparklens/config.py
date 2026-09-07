@@ -12,6 +12,10 @@ class SparkLensSettings(BaseModel):
         default="http://localhost:18088",
         description="Root URL of the Apache Spark History Server."
     )
+    spark_livy_url: str = Field(
+        default="http://localhost:8998",
+        description="Root URL of the Apache Livy-Next REST server."
+    )
     spark_auth_type: str = Field(
         default="none",
         description="Authentication mechanism: 'none', 'basic', or 'oauth'."
@@ -50,6 +54,7 @@ class SparkLensSettings(BaseModel):
         """Load configuration from environment variables."""
         return cls(
             spark_history_url=os.environ.get("SPARK_HISTORY_URL", "http://localhost:18088").rstrip("/"),
+            spark_livy_url=os.environ.get("SPARK_LIVY_URL", "http://localhost:8998").rstrip("/"),
             spark_auth_type=os.environ.get("SPARK_AUTH_TYPE", "none").lower(),
             spark_username=os.environ.get("SPARK_USERNAME") or None,
             spark_password=os.environ.get("SPARK_PASSWORD") or None,

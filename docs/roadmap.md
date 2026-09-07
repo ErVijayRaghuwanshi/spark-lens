@@ -43,6 +43,14 @@ This document outlines the development plan and milestone achievements for Spark
 - [x] **Multi-Version Prompts**: `audit_spark4_migration`, `diagnose_application`, `optimize_application`, `explain_sql_query`.
 - [x] **Automated Test Suite**: 29 unit and integration tests with `pytest` and `respx`.
 
-### Phase 4: Advanced Live Diagnostics (Next)
+### Phase 4: Apache Livy-Next (Spark Connect) Integration (Complete)
+- [x] **Interactive Livy-Next Client (`SparkLivyNextClient`)**: Session creation, statement submission, cancellation, and async completion polling.
+- [x] **MCP Interactive Tools**: `list_livy_sessions`, `get_livy_session`, `create_livy_session`, `delete_livy_session`, `list_livy_statements`, `get_livy_statement`, `submit_livy_statement`, `cancel_livy_statement`.
+- [x] **Safe SQL Execution & ANSI Remediation (`run_livy_statement`)**: Automatic polling, tabular output parsing, and instant ANSI SQL error remediation (`[DIVIDE_BY_ZERO]`, `[CAST_INVALID_INPUT]`).
+- [x] **Cross-Service Correlation (`diagnose_livy_session`)**: Automatically links Livy sessions to Spark History Server metrics via `appId`.
+- [x] **Livy Prompts**: `troubleshoot_livy_session` and `execute_and_verify_sql`.
+- [x] **Automated Test Suite**: 44 tests covering client, server, and live scenarios.
+
+### Phase 5: Advanced Live Diagnostics (Next)
 - [ ] **Live Spark UI Integration**: Direct connection to active driver UI (`:4040`) for live application streaming.
 - [ ] **Direct Log Parser**: Integration with YARN/Kubernetes log aggregators to pull executor stdout/stderr.

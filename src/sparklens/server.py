@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from fastmcp import FastMCP
 
 from sparklens.config import settings
-from sparklens.client import client
+from sparklens.client import client, livy_client
 from sparklens.version import (
     SparkMajorVersion,
     extract_spark_version_from_env,
@@ -23,16 +23,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sparklens")
 
+# Recommended System Prompt for AI Agents using SparkLens
+SYSTEM_PROMPT = """You are a senior Apache Spark performance tuning, diagnostic, and execution AI engineer.
+You are equipped with the SparkLens toolkit, bridging post-hoc Spark History Server observability with interactive Apache Livy-Next (Spark Connect) execution across Apache Spark 3.x and Spark 4.x.
+
+Your objective is to assist developers and data engineers in analyzing execution logs, diagnosing runtime failures, detecting data skew, evaluating Spark 4.0 migration readiness, and executing interactive queries safely.
+
+Core Capabilities & Guidelines:
+
+1. Application Discovery & Version Detection:
+   - When asked about completed or running applications, start with `list_applications`.
+   - Call `get_spark_version` (with or without `app_id`) to detect the major version (3.x vs 4.x), runtime JVM (Java 8/11/17/21), Scala version, and whether ANSI SQL mode or Adaptive Query Execution (AQE) is active.
+
+2. Health Diagnostics & Failure Troubleshooting:
+   - For high-level health and failure correlation of an application, run `analyze_application`.
+   - Diagnose failed stages with `find_failed_stages` and `explain_stage_failure`. Pay close attention to Spark 4.x standardized error classes (e.g., `[CANNOT_DIVIDE_BY_ZERO]`, `[CAST_INVALID_INPUT]`, `[NUMERIC_VALUE_OUT_OF_RANGE]`) and provide ANSI-tolerant remediations (`try_divide`, `try_cast`).
+   - For executor crashes, OOMs, or GC overhead, inspect `get_executors` and `get_environment`.
+
+3. Data Skew & Performance Optimization:
+   - Analyze task duration and memory/disk spill skew in heavy stages using `find_data_skew`.
+   - Inspect SQL physical execution plans with `list_sql_queries` and `get_sql_query_details` to identify costly sort-merge joins, cartesian products, or missing partition pruning.
+   - Provide concrete tuning advice: AQE settings (`spark.sql.adaptive.skewJoin.enabled`), partition sizing, key salting, or broadcast hints.
+
+4. Spark 4.0 Migration Auditing:
+   - When preparing an application for Spark 4.x upgrade, run `check_spark_compatibility` to audit configurations against breaking changes (Java 17 baseline, Scala 2.13, LevelDB shuffle removal, deprecated configs, and default ANSI mode).
+
+5. Interactive Querying & Livy-Next (Spark Connect):
+   - When working with interactive sessions, use `list_livy_sessions`, `get_livy_session`, or `create_livy_session`.
+   - Execute queries or code safely using `run_livy_statement`, which waits for completion and formats tabular results and data previews.
+   - If a statement fails, review the categorized error and remediation steps. Under Spark 4 ANSI mode, suggest rewrite solutions (e.g. null-tolerant functions).
+   - Use `diagnose_livy_session` to bridge interactive session errors and logs with the underlying Spark History Server application diagnostics via `appId`.
+
+6. Output Presentation:
+   - Present metrics, schemas, and comparative analyses in clean, structured Markdown tables.
+   - Separate root causes from actionable remediation steps using clear headings and bullet points.
+   - Keep answers concise, factual, and scannable without dumping unnecessary raw logs into context.
+"""
+
 # Initialize FastMCP Server
 mcp = FastMCP(
     "SparkLens",
-    instructions="""
-    Provides diagnostic, optimization, and observability tools for Apache Spark 3.x and Spark 4.x
-    applications from the Spark History Server.
-    
-    Use this server to explore application runs, diagnose failures (including Spark 4 ANSI SQL error classes
-    and Spark 3 legacy exceptions), audit configurations for Spark 4.x migration readiness, and detect performance bottlenecks (skew, spills, slow stages).
-    """
+    instructions=SYSTEM_PROMPT
 )
 
 
@@ -111,6 +142,45 @@ Please follow these steps:
    - Check partition pruning and filter pushdowns.
 3. Explain the query's execution plan in plain, understandable terms.
 4. Provide actionable recommendations (broadcast hints, partition pruning, AQE tuning).
+"""
+
+
+@mcp.prompt()
+def troubleshoot_livy_session(session_id: int) -> str:
+    """Create a prompt to troubleshoot and diagnose an interactive Livy-Next session."""
+    return f"""You are an expert Apache Spark & Livy-Next troubleshooting engineer.
+Your goal is to investigate and diagnose the interactive Livy session with ID: `{session_id}`.
+
+Please follow these steps:
+1. Call `get_livy_session` with `session_id={session_id}` to inspect the session state, runtime kind, and linked Spark `appId`.
+2. Call `list_livy_statements` with `session_id={session_id}` to review submitted statements and identify any that failed.
+3. Call `diagnose_livy_session` with `session_id={session_id}` to cross-reference session failures with Spark History Server metrics.
+4. For any failed statements:
+   - Identify the error category and structured error class (e.g., `[DIVIDE_BY_ZERO]`, `[PARSE_SYNTAX_ERROR]`, `[INVALID_HANDLE.SESSION_CLOSED]`).
+   - Suggest code or configuration remediation.
+5. Provide a summary of session health and actionable recommendations.
+"""
+
+
+@mcp.prompt()
+def execute_and_verify_sql(session_id: int, sql_query: str) -> str:
+    """Create a prompt to safely execute a SQL query in a Livy-Next session and handle ANSI/runtime errors."""
+    return f"""You are a senior Apache Spark SQL developer.
+Your goal is to execute the following SQL query in Livy session `{session_id}` and verify its output:
+
+```sql
+{sql_query}
+```
+
+Please follow these steps:
+1. Call `run_livy_statement` with `session_id={session_id}` and `code='''{sql_query}'''`.
+2. If execution succeeds (`status="ok"`):
+   - Review the returned schema and preview rows.
+   - Summarize the result and row count.
+3. If execution fails with an ANSI SQL error or runtime exception:
+   - Check the `errorCategory`, `errorClass`, and `remediationSteps`.
+   - In Spark 4.0 ANSI mode, rewrite failing expressions using tolerant functions (e.g., replace `/` with `try_divide`, `CAST` with `try_cast`, or null-safe operations).
+   - Re-execute the corrected query via `run_livy_statement`.
 """
 
 
@@ -403,6 +473,285 @@ async def check_spark_compatibility(app_id: str) -> Dict[str, Any]:
 
     report = audit_spark4_compatibility(env_data, version_info)
     return report.model_dump()
+
+
+# --- Livy-Next Interactive Session & Execution Tools ---
+
+@mcp.tool
+async def list_livy_sessions(
+    from_idx: Optional[int] = 0, 
+    limit: Optional[int] = 20
+) -> Dict[str, Any]:
+    """List active interactive sessions managed by Apache Livy-Next (Spark Connect).
+    
+    Args:
+        from_idx: Starting index for session pagination (default: 0)
+        limit: Maximum number of sessions to return (default: 20)
+    """
+    try:
+        return await livy_client.list_sessions(from_idx=from_idx, limit=limit)
+    except Exception as e:
+        return {"error": f"Failed to list Livy sessions: {str(e)}"}
+
+
+@mcp.tool
+async def get_livy_session(session_id: int) -> Dict[str, Any]:
+    """Get details, state, and Spark Connect application ID for a specific Livy-Next session.
+    
+    Args:
+        session_id: Unique integer ID of the Livy session
+    """
+    try:
+        return await livy_client.get_session(session_id)
+    except Exception as e:
+        return {"error": f"Failed to get Livy session {session_id}: {str(e)}"}
+
+
+@mcp.tool
+async def create_livy_session(
+    name: Optional[str] = None,
+    kind: str = "spark",
+    proxy_user: Optional[str] = None,
+    conf: Optional[Dict[str, str]] = None,
+    jars: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Create a new interactive session in Livy-Next connecting to Spark Connect.
+    
+    Args:
+        name: Optional descriptive session name
+        kind: Session kind ('spark', 'sql', 'pyspark', 'sparkr', default: 'spark')
+        proxy_user: Optional proxy user to run the session as
+        conf: Optional dictionary of Spark configuration properties
+        jars: Optional list of JAR files to include
+    """
+    try:
+        return await livy_client.create_session(
+            name=name,
+            kind=kind,
+            proxy_user=proxy_user,
+            conf=conf,
+            jars=jars
+        )
+    except Exception as e:
+        return {"error": f"Failed to create Livy session: {str(e)}"}
+
+
+@mcp.tool
+async def delete_livy_session(session_id: int) -> Dict[str, Any]:
+    """Terminate and delete an interactive Livy-Next session.
+    
+    Args:
+        session_id: The ID of the session to terminate
+    """
+    try:
+        return await livy_client.delete_session(session_id)
+    except Exception as e:
+        return {"error": f"Failed to delete Livy session {session_id}: {str(e)}"}
+
+
+@mcp.tool
+async def list_livy_statements(session_id: int) -> Dict[str, Any]:
+    """List all statements executed or queued in a Livy-Next interactive session.
+    
+    Args:
+        session_id: Unique integer ID of the Livy session
+    """
+    try:
+        return await livy_client.list_statements(session_id)
+    except Exception as e:
+        return {"error": f"Failed to list statements for session {session_id}: {str(e)}"}
+
+
+@mcp.tool
+async def get_livy_statement(session_id: int, statement_id: int) -> Dict[str, Any]:
+    """Get the execution state, progress, and results of a specific statement in a Livy-Next session.
+    
+    Args:
+        session_id: The Livy session ID
+        statement_id: The statement ID within the session
+    """
+    try:
+        return await livy_client.get_statement(session_id, statement_id)
+    except Exception as e:
+        return {"error": f"Failed to get statement {statement_id} for session {session_id}: {str(e)}"}
+
+
+@mcp.tool
+async def submit_livy_statement(session_id: int, code: str) -> Dict[str, Any]:
+    """Submit code or SQL asynchronously to an interactive Livy-Next session without waiting for completion.
+    
+    Args:
+        session_id: The Livy session ID to execute in
+        code: The SQL query or Spark code to execute
+    """
+    try:
+        return await livy_client.submit_statement(session_id, code)
+    except Exception as e:
+        return {"error": f"Failed to submit statement to session {session_id}: {str(e)}"}
+
+
+@mcp.tool
+async def cancel_livy_statement(session_id: int, statement_id: int) -> Dict[str, Any]:
+    """Cancel an active or queued statement execution in a Livy-Next session.
+    
+    Args:
+        session_id: The Livy session ID
+        statement_id: The statement ID to cancel
+    """
+    try:
+        return await livy_client.cancel_statement(session_id, statement_id)
+    except Exception as e:
+        return {"error": f"Failed to cancel statement {statement_id} in session {session_id}: {str(e)}"}
+
+
+@mcp.tool
+async def run_livy_statement(
+    session_id: int,
+    code: str,
+    timeout_seconds: float = 60.0
+) -> Dict[str, Any]:
+    """Submit code or SQL to a Livy-Next session, wait for completion, and return structured output with error diagnosis.
+    
+    If an error occurs (such as a Spark 4.0 ANSI SQL error or syntax error), the error is parsed
+    and targeted remediation steps are provided.
+    
+    Args:
+        session_id: The Livy session ID to run within
+        code: SQL query or Spark statement to execute
+        timeout_seconds: Max seconds to wait for execution to complete (default: 60.0)
+    """
+    try:
+        stmt = await livy_client.run_statement_and_wait(
+            session_id=session_id,
+            code=code,
+            timeout_seconds=timeout_seconds
+        )
+    except TimeoutError as te:
+        return {
+            "sessionId": session_id,
+            "code": code,
+            "state": "timeout",
+            "error": str(te)
+        }
+    except Exception as e:
+        return {"error": f"Failed to execute statement in session {session_id}: {str(e)}"}
+
+    stmt_id = stmt.get("id")
+    state = stmt.get("state", "unknown")
+    started = stmt.get("started")
+    completed = stmt.get("completed")
+    duration_ms = (completed - started) if (started and completed) else None
+    output = stmt.get("output") or {}
+
+    status = output.get("status")
+    data = output.get("data")
+    ename = output.get("ename")
+    evalue = output.get("evalue")
+    traceback = output.get("traceback", [])
+
+    summary: Dict[str, Any] = {
+        "sessionId": session_id,
+        "statementId": stmt_id,
+        "code": code,
+        "state": state,
+        "status": status,
+        "durationMs": duration_ms,
+    }
+
+    if status == "ok" and data:
+        if "application/json" in data:
+            json_data = data["application/json"]
+            schema = json_data.get("schema", {})
+            rows = json_data.get("data", [])
+            summary["schema"] = schema.get("fields", [])
+            summary["rowCount"] = len(rows)
+            summary["previewRows"] = rows[:20]
+        elif "text/plain" in data:
+            summary["textOutput"] = data["text/plain"]
+        else:
+            summary["data"] = data
+    elif status == "error" or state == "error":
+        error_msg = evalue or "\n".join(traceback) or ename or "Unknown execution error"
+        summary["errorName"] = ename
+        summary["errorValue"] = evalue
+        summary["traceback"] = traceback[:5]
+
+        category, error_class, remediation = categorize_failure(error_msg, None)
+        summary["errorCategory"] = category
+        summary["errorClass"] = error_class
+        summary["remediationSteps"] = remediation
+
+    return summary
+
+
+@mcp.tool
+async def diagnose_livy_session(session_id: int) -> Dict[str, Any]:
+    """Diagnose an active Livy-Next session by correlating session state with Spark History Server diagnostics.
+    
+    Retrieves the Spark application ID (`appId`) associated with the Livy session,
+    analyzes recent statement executions and failures, and queries the History Server
+    to assess overall application execution health.
+    
+    Args:
+        session_id: The unique integer ID of the Livy-Next session
+    """
+    try:
+        session_data = await livy_client.get_session(session_id)
+    except Exception as e:
+        return {"error": f"Failed to retrieve Livy session {session_id}: {str(e)}"}
+
+    app_id = session_data.get("appId")
+    session_state = session_data.get("state")
+    session_kind = session_data.get("kind")
+    log = session_data.get("log", [])
+    app_info = session_data.get("appInfo", {})
+
+    result: Dict[str, Any] = {
+        "sessionId": session_id,
+        "state": session_state,
+        "kind": session_kind,
+        "appId": app_id,
+        "appInfo": app_info,
+        "sessionLogTail": log[-10:] if log else [],
+    }
+
+    failed_statements = []
+    try:
+        stmts_resp = await livy_client.list_statements(session_id)
+        statements = stmts_resp.get("statements", [])
+        for stmt in statements:
+            if stmt.get("state") == "error":
+                out = stmt.get("output") or {}
+                err_text = out.get("evalue") or out.get("ename") or "Statement error"
+                cat, err_cls, rem = categorize_failure(err_text, None)
+                failed_statements.append({
+                    "statementId": stmt.get("id"),
+                    "code": stmt.get("code"),
+                    "errorCategory": cat,
+                    "errorClass": err_cls,
+                    "errorMessage": err_text,
+                    "remediationSteps": rem,
+                })
+    except Exception as e:
+        result["statementsError"] = f"Could not list statements: {str(e)}"
+
+    result["failedStatementsCount"] = len(failed_statements)
+    result["failedStatements"] = failed_statements[:5]
+
+    if app_id:
+        try:
+            history_health = await analyze_application(app_id)
+            result["sparkHistoryDiagnostics"] = history_health
+        except Exception as e:
+            result["sparkHistoryDiagnostics"] = {
+                "warning": f"Could not correlate with Spark History Server for appId {app_id}: {str(e)}"
+            }
+    else:
+        result["sparkHistoryDiagnostics"] = {
+            "info": "No appId currently linked to this Livy session."
+        }
+
+    return result
 
 
 def main():

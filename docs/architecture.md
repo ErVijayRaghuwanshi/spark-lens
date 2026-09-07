@@ -6,7 +6,7 @@ This document details the system design, components, data flows, multi-version a
 
 ## High-Level Architecture
 
-SparkLens acts as an intelligent intermediary (adapter pattern) translating LLM tool calls (defined under the Model Context Protocol) into REST API invocations against the Apache Spark History Server, dynamically adapting diagnostics based on whether the target application is running Spark 3.x or Spark 4.x.
+SparkLens acts as an intelligent intermediary (adapter pattern) translating LLM tool calls (defined under the Model Context Protocol) into REST API invocations against both the **Apache Spark History Server** and **Apache Livy-Next** (Spark Connect successor), dynamically adapting diagnostics based on whether the target application is running Spark 3.x or Spark 4.x.
 
 ```mermaid
 graph TD
@@ -18,18 +18,23 @@ graph TD
         B --> B1[Version & Capability Detector]
         B --> B2[Diagnostic & Skew Engine]
         B --> B3[Spark 4.x Migration Auditor]
+        B --> B4[Livy Session & Statement Manager]
         B1 --> C_Client[Spark History Client]
         B2 --> C_Client
         B3 --> C_Client
+        B4 --> D_Client[Spark Livy-Next Client]
     end
 
     subgraph Spark Infrastructure
-        C_Client -- HTTP REST API /api/v1 --> C[Spark History Server :18080]
-        C --> D[(Spark Event Logs: Spark 3.x & 4.x)]
+        C_Client -- HTTP REST /api/v1 --> C[Spark History Server :18088]
+        D_Client -- HTTP REST --> D[Apache Livy-Next :8998]
+        D -- Spark Connect gRPC --> E[Spark 4.0 Driver / Cluster]
+        C --> F[(Spark Event Logs: Spark 3.x & 4.x)]
     end
     
     style B fill:#f96,stroke:#333,stroke-width:2px
     style C fill:#69c,stroke:#333,stroke-width:2px
+    style D fill:#4ca,stroke:#333,stroke-width:2px
 ```
 
 ---
@@ -52,30 +57,30 @@ A single Spark History Server instance frequently aggregates event logs across m
 ## Structural Component Layering
 
 ```
-  ┌───────────────────────────────────────────────────────────┐
-  │                    FastMCP Tools Layer                    │
-  ├───────────────────┬───────────────────┬───────────────────┤
-  │  Discovery Tools  │ Diagnostic Tools  │ Migration Tools   │
-  │  (get_version,    │ (analyze_app,     │ (check_spark_     │
-  │   list_apps)      │  find_data_skew)  │  compatibility)   │
-  └───────────────────┴───────────────────┴───────────────────┘
-                                │
-                                ▼
-  ┌───────────────────────────────────────────────────────────┐
-  │                 Diagnostic & Analysis Engine              │
-  │  (Version detection, Error Class parser, Skew quantiles)  │
-  └───────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-  ┌───────────────────────────────────────────────────────────┐
-  │                     Spark API Client                      │
-  │  (HTTP client, transport configuration, auth mechanism)  │
-  └───────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-  ┌───────────────────────────────────────────────────────────┐
-  │                Apache Spark History Server                │
-  └───────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                            FastMCP Tools Layer                              │
+  ├───────────────────┬───────────────────┬───────────────────┬─────────────────┤
+  │  Discovery Tools  │ Diagnostic Tools  │ Migration Tools   │ Livy Next Tools │
+  │  (get_version,    │ (analyze_app,     │ (check_spark_     │ (list/create    │
+  │   list_apps)      │  find_data_skew)  │  compatibility)   │  sessions/stmts)│
+  └───────────────────┴───────────────────┴───────────────────┴─────────────────┘
+                                         │
+                                         ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                         Diagnostic & Analysis Engine                        │
+  │  (Version detection, Error Class parser, Skew quantiles, Livy error parser) │
+  └─────────────────────────────────────────────────────────────────────────────┘
+                     │                                           │
+                     ▼                                           ▼
+  ┌─────────────────────────────────────┐     ┌─────────────────────────────────┐
+  │          Spark API Client           │     │       Spark Livy-Next Client    │
+  │  (HTTP client, transport, auth)     │     │  (Session & Statement execution)│
+  └─────────────────────────────────────┘     └─────────────────────────────────┘
+                     │                                           │
+                     ▼                                           ▼
+  ┌─────────────────────────────────────┐     ┌─────────────────────────────────┐
+  │     Apache Spark History Server     │     │        Apache Livy-Next         │
+  └─────────────────────────────────────┘     └─────────────────────────────────┘
 ```
 
 1. **FastMCP Tools Layer**:
@@ -83,10 +88,12 @@ A single Spark History Server instance frequently aggregates event logs across m
    - **Deep-Dive Data Tools**: Jobs, stages, task summaries, executors, SQL query plans.
    - **Diagnostic Tools**: Version-aware health report (`analyze_application`), failed stage categorization (`find_failed_stages`, `explain_stage_failure`), and skew analysis (`find_data_skew`).
    - **Migration & Compatibility Tools**: Spark 4.x readiness check (`check_spark_compatibility`).
+   - **Livy-Next Interactive Tools**: Session management (`list_livy_sessions`, `create_livy_session`), statement execution (`run_livy_statement`), and session diagnostics (`diagnose_livy_session`).
 2. **Diagnostic & Analysis Engine**:
-   - Performs client-side calculations (quantile distributions, skew ratios) and error class recognition to conserve LLM tokens.
-3. **Spark API Client Layer**:
-   - Handles connection pooling, timeouts, basic/bearer authentication, and endpoint routing.
+   - Performs client-side calculations (quantile distributions, skew ratios) and error class recognition (ANSI SQL exceptions, syntax errors) to conserve LLM tokens.
+3. **Clients Layer**:
+   - **Spark History Client**: Handles connection pooling, timeouts, basic/bearer authentication, and endpoint routing to Spark History Server.
+   - **Spark Livy-Next Client**: Handles session lifecycle, statement submission, async polling, and statement cancellation.
 
 ---
 

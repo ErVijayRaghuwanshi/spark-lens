@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 from typing import List, Dict, Any, Optional
@@ -13,6 +14,147 @@ from sparklens.version import (
 )
 
 logger = logging.getLogger("sparklens.client")
+
+class SparkLivyNextClient:
+    """Async client to interact with the Apache Livy-Next REST API."""
+
+    def __init__(self, config: Optional[SparkLensSettings] = None):
+        self.config = config or settings
+
+    async def get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Sends a GET request to the Livy REST API."""
+        url = f"{self.config.spark_livy_url}{path}"
+        headers = {"Accept": "application/json"}
+
+        logger.info(f"Querying Livy API: {url} with params {params}")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.get(url, params=params, headers=headers)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP {e.response.status_code} error from {url}: {e.response.text}")
+                raise RuntimeError(f"Livy API error ({e.response.status_code}): {e.response.text}") from e
+            except httpx.RequestError as e:
+                logger.error(f"Network/Connection error querying {url}: {e}")
+                raise RuntimeError(f"Failed to connect to Livy Server at {self.config.spark_livy_url}: {e}") from e
+
+    async def post(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Any:
+        """Sends a POST request to the Livy REST API."""
+        url = f"{self.config.spark_livy_url}{path}"
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+        logger.info(f"Posting to Livy API: {url} with payload {json_body}")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.post(url, json=json_body or {}, headers=headers)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP {e.response.status_code} error from {url}: {e.response.text}")
+                raise RuntimeError(f"Livy API error ({e.response.status_code}): {e.response.text}") from e
+            except httpx.RequestError as e:
+                logger.error(f"Network/Connection error posting to {url}: {e}")
+                raise RuntimeError(f"Failed to connect to Livy Server at {self.config.spark_livy_url}: {e}") from e
+
+    async def delete(self, path: str) -> Any:
+        """Sends a DELETE request to the Livy REST API."""
+        url = f"{self.config.spark_livy_url}{path}"
+        headers = {"Accept": "application/json"}
+
+        logger.info(f"Deleting on Livy API: {url}")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.delete(url, headers=headers)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP {e.response.status_code} error from {url}: {e.response.text}")
+                raise RuntimeError(f"Livy API error ({e.response.status_code}): {e.response.text}") from e
+            except httpx.RequestError as e:
+                logger.error(f"Network/Connection error deleting on {url}: {e}")
+                raise RuntimeError(f"Failed to connect to Livy Server at {self.config.spark_livy_url}: {e}") from e
+
+    async def list_sessions(self, from_idx: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+        """List active interactive sessions in Livy-Next."""
+        params: Dict[str, Any] = {}
+        if from_idx is not None:
+            params["from"] = from_idx
+        if limit is not None:
+            params["size"] = limit
+        return await self.get("/sessions", params=params if params else None)
+
+    async def get_session(self, session_id: int) -> Dict[str, Any]:
+        """Get details and state of a specific session."""
+        return await self.get(f"/sessions/{session_id}")
+
+    async def create_session(
+        self,
+        name: Optional[str] = None,
+        kind: str = "spark",
+        proxy_user: Optional[str] = None,
+        jars: Optional[List[str]] = None,
+        conf: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Create a new interactive session and connect to Spark Connect."""
+        payload: Dict[str, Any] = {"kind": kind}
+        if name:
+            payload["name"] = name
+        if proxy_user:
+            payload["proxyUser"] = proxy_user
+        if jars:
+            payload["jars"] = jars
+        if conf:
+            payload["conf"] = conf
+        return await self.post("/sessions", json_body=payload)
+
+    async def delete_session(self, session_id: int) -> Dict[str, Any]:
+        """Close and terminate a specific interactive session."""
+        return await self.delete(f"/sessions/{session_id}")
+
+    async def list_statements(self, session_id: int) -> Dict[str, Any]:
+        """List all statements submitted to a session."""
+        return await self.get(f"/sessions/{session_id}/statements")
+
+    async def get_statement(self, session_id: int, statement_id: int) -> Dict[str, Any]:
+        """Get execution state, progress, and results of a statement."""
+        return await self.get(f"/sessions/{session_id}/statements/{statement_id}")
+
+    async def submit_statement(self, session_id: int, code: str) -> Dict[str, Any]:
+        """Submit code or SQL statement for execution in a session."""
+        return await self.post(f"/sessions/{session_id}/statements", json_body={"code": code})
+
+    async def cancel_statement(self, session_id: int, statement_id: int) -> Dict[str, Any]:
+        """Cancel a statement execution inside a session."""
+        return await self.post(f"/sessions/{session_id}/statements/{statement_id}/cancel")
+
+    async def run_statement_and_wait(
+        self,
+        session_id: int,
+        code: str,
+        timeout_seconds: float = 60.0,
+        poll_interval: float = 0.5,
+    ) -> Dict[str, Any]:
+        """Submit statement and poll until terminal state (available, error, cancelled) or timeout."""
+        stmt = await self.submit_statement(session_id, code)
+        stmt_id = stmt["id"]
+
+        elapsed = 0.0
+        while elapsed < timeout_seconds:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+            curr_stmt = await self.get_statement(session_id, stmt_id)
+            state = curr_stmt.get("state")
+            if state in ["available", "error", "cancelled"]:
+                return curr_stmt
+
+        raise TimeoutError(
+            f"Statement {stmt_id} in session {session_id} timed out after {timeout_seconds}s (last state: {curr_stmt.get('state')})"
+        )
 
 
 class SparkHistoryClient:
@@ -150,5 +292,6 @@ class SparkHistoryClient:
             )
 
 
-# Default global client instance
+# Default global client instances
 client = SparkHistoryClient()
+livy_client = SparkLivyNextClient()
