@@ -24,7 +24,23 @@ SparkLens is configured via environment variables or a `.env` file.
 
 ## Launching SparkLens
 
-### Running Locally with uv (Recommended)
+### Option A: Using Make (Quickest)
+
+```bash
+# Install dependencies & prepare .env
+make install
+
+# Run server with STDIO transport
+make run
+
+# Or run server with SSE transport on port 8030
+make run-sse
+
+# Launch FastMCP Developer Inspector
+make inspector
+```
+
+### Option B: Running Directly with uv
 
 ```bash
 # Create a .env file from template
@@ -46,6 +62,8 @@ SPARK_MCP_TRANSPORT=sse SPARK_MCP_PORT=8030 uv run --env-file .env python -m spa
 You can inspect all SparkLens tools and prompts interactively using FastMCP's built-in inspector:
 
 ```bash
+make inspector
+# or directly with uv:
 uv run --env-file .env fastmcp dev inspector src/sparklens/server.py
 ```
 

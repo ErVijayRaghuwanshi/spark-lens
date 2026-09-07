@@ -59,37 +59,52 @@ spark-lens/
 - Python 3.10+
 - Access to an Apache Spark History Server (Spark 3.x or 4.x)
 
-### 2. Clone & Run with uv (Recommended)
+### 2. Clone & Run with Make / uv (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/ErVijayRaghuwanshi/spark-lens.git
 cd spark-lens
 
-# Create a .env file from template
-cp .env.example .env
+# Install dependencies and create .env
+make install
 
-# Run the server via stdio transport using uv
-uv run --env-file .env python -m sparklens.server
-```
+# Run the server via stdio transport
+make run
 
-Alternatively, install the package locally:
-```bash
-uv pip install -e .
-# or:
-pip install -e .
+# Or run with SSE (HTTP) transport on port 8030
+make run-sse
 ```
 
 ### 3. Testing with the MCP Inspector
 Launch FastMCP's built-in developer inspector:
 ```bash
-uv run --env-file .env fastmcp dev inspector src/sparklens/server.py
+make inspector
+# or:
+make dev
 ```
 
 ### 4. Running the Test Suite
 ```bash
-uv run pytest tests/ -v
+make test-v
 ```
+
+---
+
+## 🛠️ Makefile Commands
+
+| Command | Description |
+|---|---|
+| `make install` | Installs dependencies with `uv` and initializes `.env` from template. |
+| `make run` | Starts the SparkLens MCP server with STDIO transport. |
+| `make run-sse` | Starts the SparkLens MCP server with SSE (HTTP) transport on port 8030. |
+| `make inspector` / `make dev` | Launches the FastMCP Developer Inspector Web UI. |
+| `make test` | Runs the test suite with `pytest`. |
+| `make test-v` | Runs the test suite in verbose mode. |
+| `make mock-server` | Starts a local mock Spark History Server on `http://127.0.0.1:18080`. |
+| `make build` | Builds package distributions (wheel and sdist) with `uv`. |
+| `make clean` | Removes build artifacts, bytecode caches, and test caches. |
+
 
 ---
 
