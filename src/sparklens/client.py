@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import sys
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import httpx
 
 from sparklens.config import SparkLensSettings, settings
@@ -87,59 +87,103 @@ class SparkLivyNextClient:
             params["size"] = limit
         return await self.get("/sessions", params=params if params else None)
 
-    async def get_session(self, session_id: int) -> Dict[str, Any]:
-        """Get details and state of a specific session."""
+    async def get_session(self, session_id: Union[int, str]) -> Dict[str, Any]:
+        """Get details and state of a specific session by numeric ID or Spark Connect UUID."""
         return await self.get(f"/sessions/{session_id}")
 
     async def create_session(
         self,
         name: Optional[str] = None,
         kind: str = "spark",
-        proxy_user: Optional[str] = None,
+        proxy_user: Optional[str] = 'sparklens',
+        user_id: Optional[str] = 'sparklens-client',
+        session_id: Optional[str] = None,
+        user_agent: Optional[str] = 'sparklens-client',
+        token: Optional[str] = None,
         jars: Optional[List[str]] = None,
         conf: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Create a new interactive session and connect to Spark Connect."""
+        """Create a new interactive session and connect to Spark Connect with optional multi-tenancy and custom UUID."""
         payload: Dict[str, Any] = {"kind": kind}
         if name:
             payload["name"] = name
         if proxy_user:
             payload["proxyUser"] = proxy_user
+        if user_id:
+            payload["userId"] = user_id
+        if session_id:
+            payload["sessionId"] = str(session_id)
+        if user_agent:
+            payload["userAgent"] = user_agent
+        if token:
+            payload["token"] = token
         if jars:
             payload["jars"] = jars
         if conf:
             payload["conf"] = conf
         return await self.post("/sessions", json_body=payload)
 
-    async def delete_session(self, session_id: int) -> Dict[str, Any]:
-        """Close and terminate a specific interactive session."""
+    async def delete_session(self, session_id: Union[int, str]) -> Dict[str, Any]:
+        """Close and terminate a specific interactive session by numeric ID or UUID."""
         return await self.delete(f"/sessions/{session_id}")
 
-    async def list_statements(self, session_id: int) -> Dict[str, Any]:
-        """List all statements submitted to a session."""
-        return await self.get(f"/sessions/{session_id}/statements")
+    async def list_statements(
+        self, 
+        session_id: Union[int, str],
+        from_idx: Optional[int] = None,
+        size: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """List statements submitted to a session with optional statement pagination."""
+        params: Dict[str, Any] = {}
+        if from_idx is not None:
+            params["from"] = from_idx
+        if size is not None:
+            params["size"] = size
+        return await self.get(f"/sessions/{session_id}/statements", params=params if params else None)
 
-    async def get_statement(self, session_id: int, statement_id: int) -> Dict[str, Any]:
-        """Get execution state, progress, and results of a statement."""
-        return await self.get(f"/sessions/{session_id}/statements/{statement_id}")
+    async def get_statement(
+        self, 
+        session_id: Union[int, str], 
+        statement_id: int,
+        from_row: Optional[int] = None,
+        size: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Get execution state, progress, and results of a statement with optional row pagination."""
+        params: Dict[str, Any] = {}
+        if from_row is not None:
+            params["from"] = from_row
+        if size is not None:
+            params["size"] = size
+        return await self.get(f"/sessions/{session_id}/statements/{statement_id}", params=params if params else None)
 
-    async def submit_statement(self, session_id: int, code: str) -> Dict[str, Any]:
-        """Submit code or SQL statement for execution in a session."""
-        return await self.post(f"/sessions/{session_id}/statements", json_body={"code": code})
+    async def submit_statement(
+        self, 
+        session_id: Union[int, str], 
+        code: str,
+        tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Submit code or SQL statement for execution in a session with optional tracking tags."""
+        payload: Dict[str, Any] = {"code": code}
+        if tags:
+            payload["tags"] = tags
+        return await self.post(f"/sessions/{session_id}/statements", json_body=payload)
 
-    async def cancel_statement(self, session_id: int, statement_id: int) -> Dict[str, Any]:
+    async def cancel_statement(self, session_id: Union[int, str], statement_id: int) -> Dict[str, Any]:
         """Cancel a statement execution inside a session."""
         return await self.post(f"/sessions/{session_id}/statements/{statement_id}/cancel")
 
     async def run_statement_and_wait(
         self,
-        session_id: int,
+        session_id: Union[int, str],
         code: str,
+        tags: Optional[List[str]] = None,
         timeout_seconds: float = 60.0,
         poll_interval: float = 0.5,
+        from_row: Optional[int] = None,
+        size: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Submit statement and poll until terminal state (available, error, cancelled) or timeout."""
-        stmt = await self.submit_statement(session_id, code)
+        """Submit statement with optional tags and poll until terminal state (available, error, cancelled) or timeout."""
+        stmt = await self.submit_statement(session_id, code, tags=tags)
         stmt_id = stmt["id"]
 
         elapsed = 0.0
@@ -147,7 +191,7 @@ class SparkLivyNextClient:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-            curr_stmt = await self.get_statement(session_id, stmt_id)
+            curr_stmt = await self.get_statement(session_id, stmt_id, from_row=from_row, size=size)
             state = curr_stmt.get("state")
             if state in ["available", "error", "cancelled"]:
                 return curr_stmt

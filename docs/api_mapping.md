@@ -29,15 +29,15 @@ This document details how raw Apache Spark History Server REST API endpoints map
 | Livy-Next REST Endpoint | SparkLens MCP Tool | Scope | Inputs | Purpose & Capabilities |
 |---|---|---|---|---|
 | `GET /sessions` | `list_livy_sessions` | Livy Session | `from_idx` (int), `limit` (int) | List active interactive Spark Connect sessions. |
-| `GET /sessions/{id}` | `get_livy_session` | Livy Session | `session_id` (int) | Details, state, and linked Spark `appId`. |
-| `POST /sessions` | `create_livy_session` | Livy Session | `name`, `kind`, `proxy_user`, `conf`, `jars` | Create interactive session connected to Spark Connect. |
-| `DELETE /sessions/{id}` | `delete_livy_session` | Livy Session | `session_id` (int) | Terminate and clean up session. |
-| `GET /sessions/{id}/statements` | `list_livy_statements` | Livy Statement | `session_id` (int) | List all statements submitted to session. |
-| `GET /sessions/{id}/statements/{statementId}` | `get_livy_statement` | Livy Statement | `session_id` (int), `statement_id` (int) | Get execution state, progress, and results. |
-| `POST /sessions/{id}/statements` | `submit_livy_statement` | Livy Statement | `session_id` (int), `code` (str) | Submit code or SQL query asynchronously. |
-| `POST /sessions/{id}/statements/{statementId}/cancel` | `cancel_livy_statement` | Livy Statement | `session_id` (int), `statement_id` (int) | Cancel active or queued statement execution. |
-| Composite (`POST /statements` + poll `GET /statements/{id}`) | `run_livy_statement` | Livy Execution | `session_id` (int), `code` (str), `timeout_seconds` (float) | Submit and wait for statement completion; provides structured tabular output or Spark 4 ANSI error remediation. |
-| Composite (`GET /sessions/{id}`, `/statements`, History API) | `diagnose_livy_session` | Livy Diagnostic | `session_id` (int) | Correlate session failures and logs with Spark History Server application metrics (`appId`). |
+| `GET /sessions/{id}` | `get_livy_session` | Livy Session | `session_id` (int \| str) | Details, state, Spark Connect UI URL, and linked Spark `appId` by numeric ID or UUID. |
+| `POST /sessions` | `create_livy_session` | Livy Session | `name`, `kind`, `proxy_user`, `user_id`, `session_id`, `user_agent`, `token`, `conf`, `jars` | Create interactive session connected to Spark Connect with multi-tenancy, custom UUID isolation, and token auth. |
+| `DELETE /sessions/{id}` | `delete_livy_session` | Livy Session | `session_id` (int \| str) | Terminate and clean up session by numeric ID or UUID. |
+| `GET /sessions/{id}/statements` | `list_livy_statements` | Livy Statement | `session_id` (int \| str), `from_idx` (int), `size` (int) | List statements submitted to session with statement pagination. |
+| `GET /sessions/{id}/statements/{statementId}` | `get_livy_statement` | Livy Statement | `session_id` (int \| str), `statement_id` (int), `from_row` (int), `size` (int) | Get execution state, progress, and results with row-level pagination. |
+| `POST /sessions/{id}/statements` | `submit_livy_statement` | Livy Statement | `session_id` (int \| str), `code` (str), `tags` (list[str]) | Submit code or SQL query asynchronously with optional operation tags. |
+| `POST /sessions/{id}/statements/{statementId}/cancel` | `cancel_livy_statement` | Livy Statement | `session_id` (int \| str), `statement_id` (int) | Cancel active or queued statement execution. |
+| Composite (`POST /statements` + poll `GET /statements/{id}`) | `run_livy_statement` | Livy Execution | `session_id` (int \| str), `code` (str), `tags` (list[str]), `timeout_seconds` (float), `from_row` (int), `size` (int) | Submit and wait for statement completion; supports operation tags, row pagination, and Spark 4 ANSI / disconnect error remediation. |
+| Composite (`GET /sessions/{id}`, `/statements`, History API) | `diagnose_livy_session` | Livy Diagnostic | `session_id` (int \| str) | Correlate session failures, Spark Connect UI deep links (`sparkConnectUiUrl`), and History Server application metrics (`appId`). |
 
 ---
 
@@ -49,6 +49,6 @@ This document details how raw Apache Spark History Server REST API endpoints map
 | `optimize_application` | `app_id` (str) | Guides LLM through auditing bottlenecks, runtime skew, memory spills, and AQE tuning. |
 | `audit_spark4_migration` | `app_id` (str) | Guides LLM through creating a Spark 4.0 migration readiness report and checklist. |
 | `explain_sql_query` | `app_id` (str), `sql_id` (int) | Guides LLM through inspecting and optimizing Spark SQL physical query plans. |
-| `troubleshoot_livy_session` | `session_id` (int) | Guides LLM through troubleshooting interactive Livy session failures and correlating with Spark History. |
-| `execute_and_verify_sql` | `session_id` (int), `sql_query` (str) | Guides LLM through executing SQL via Livy-Next, reviewing results, and remediating ANSI SQL errors. |
+| `troubleshoot_livy_session` | `session_id` (int \| str) | Guides LLM through troubleshooting interactive Livy session failures and correlating with Spark History and Connect UI. |
+| `execute_and_verify_sql` | `session_id` (int \| str), `sql_query` (str) | Guides LLM through executing SQL via Livy-Next, reviewing paginated results, and remediating ANSI SQL errors. |
 

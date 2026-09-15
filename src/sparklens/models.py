@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field
 from sparklens.version import SparkMajorVersion, SparkVersionInfo, SparkFeatures
 
@@ -37,7 +37,7 @@ class StageFailureDetail(BaseModel):
     name: str
     failure_reason: str
     error_category: str = Field(
-        description="Categorized type: 'ANSI_SQL_ERROR', 'OUT_OF_MEMORY', 'SHUFFLE_FETCH_FAILURE', 'EXECUTOR_LOSS', 'SCHEMA_MISMATCH', or 'GENERIC_FAILURE'"
+        description="Categorized type: 'ANSI_SQL_ERROR', 'OUT_OF_MEMORY', 'SHUFFLE_FETCH_FAILURE', 'EXECUTOR_LOSS', 'SCHEMA_MISMATCH', 'SPARK_CONNECT_DISCONNECT', or 'GENERIC_FAILURE'"
     )
     error_class: Optional[str] = Field(
         default=None, 
@@ -108,6 +108,17 @@ class LivyStatementState(str, Enum):
     CANCELLED = "cancelled"
 
 
+class LivyQueryResult(BaseModel):
+    """Structured Spark Connect SQL query result with optional row pagination."""
+    model_config = {"populate_by_name": True}
+
+    schema_def: Optional[Any] = Field(default=None, alias="schema", description="Schema definition of the result rows")
+    data: List[List[Any]] = Field(default=[], description="2D array of row values")
+    total: Optional[int] = Field(default=None, description="Total number of rows produced by the query")
+    from_idx: Optional[int] = Field(default=None, alias="from", description="Row offset of this page")
+    size: Optional[int] = Field(default=None, description="Maximum number of rows returned in this page")
+
+
 class LivyStatementOutput(BaseModel):
     """Output payload from a Livy statement execution."""
     status: Optional[str] = Field(default=None, description="'ok' or 'error'")
@@ -127,6 +138,7 @@ class LivyStatement(BaseModel):
     progress: Optional[float] = 0.0
     started: Optional[int] = None
     completed: Optional[int] = None
+    tags: Optional[List[str]] = None
 
 
 class LivySession(BaseModel):
@@ -134,6 +146,8 @@ class LivySession(BaseModel):
     id: int
     appId: Optional[str] = None
     sessionId: Optional[str] = None
+    userId: Optional[str] = None
+    userAgent: Optional[str] = None
     state: LivySessionState
     kind: Optional[str] = "spark"
     name: Optional[str] = None
@@ -163,15 +177,19 @@ class LivyStatementsResponse(BaseModel):
 
 class LivyExecutionSummary(BaseModel):
     """Convenient high-level summary of a statement execution result."""
-    session_id: int
+    session_id: Union[int, str]
     statement_id: int
     code: str
     state: str
     status: Optional[str] = None
     duration_ms: Optional[int] = None
+    tags: Optional[List[str]] = None
     data_preview: Optional[Any] = None
     schema_fields: Optional[List[Dict[str, Any]]] = None
     row_count: Optional[int] = None
+    total_rows: Optional[int] = None
+    from_row: Optional[int] = None
+    page_size: Optional[int] = None
     error_name: Optional[str] = None
     error_value: Optional[str] = None
     error_category: Optional[str] = None

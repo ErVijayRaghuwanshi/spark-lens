@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from fastmcp import FastMCP
 
 from sparklens.config import settings
@@ -146,15 +146,15 @@ Please follow these steps:
 
 
 @mcp.prompt()
-def troubleshoot_livy_session(session_id: int) -> str:
+def troubleshoot_livy_session(session_id: Union[int, str]) -> str:
     """Create a prompt to troubleshoot and diagnose an interactive Livy-Next session."""
     return f"""You are an expert Apache Spark & Livy-Next troubleshooting engineer.
 Your goal is to investigate and diagnose the interactive Livy session with ID: `{session_id}`.
 
 Please follow these steps:
-1. Call `get_livy_session` with `session_id={session_id}` to inspect the session state, runtime kind, and linked Spark `appId`.
-2. Call `list_livy_statements` with `session_id={session_id}` to review submitted statements and identify any that failed.
-3. Call `diagnose_livy_session` with `session_id={session_id}` to cross-reference session failures with Spark History Server metrics.
+1. Call `get_livy_session` with `session_id="{session_id}"` to inspect the session state, runtime kind, Connect UI URL, and linked Spark `appId`.
+2. Call `list_livy_statements` with `session_id="{session_id}"` to review submitted statements and identify any that failed.
+3. Call `diagnose_livy_session` with `session_id="{session_id}"` to cross-reference session failures with Spark History Server metrics and obtain Spark Connect UI links.
 4. For any failed statements:
    - Identify the error category and structured error class (e.g., `[DIVIDE_BY_ZERO]`, `[PARSE_SYNTAX_ERROR]`, `[INVALID_HANDLE.SESSION_CLOSED]`).
    - Suggest code or configuration remediation.
@@ -163,7 +163,7 @@ Please follow these steps:
 
 
 @mcp.prompt()
-def execute_and_verify_sql(session_id: int, sql_query: str) -> str:
+def execute_and_verify_sql(session_id: Union[int, str], sql_query: str) -> str:
     """Create a prompt to safely execute a SQL query in a Livy-Next session and handle ANSI/runtime errors."""
     return f"""You are a senior Apache Spark SQL developer.
 Your goal is to execute the following SQL query in Livy session `{session_id}` and verify its output:
@@ -173,9 +173,9 @@ Your goal is to execute the following SQL query in Livy session `{session_id}` a
 ```
 
 Please follow these steps:
-1. Call `run_livy_statement` with `session_id={session_id}` and `code='''{sql_query}'''`.
+1. Call `run_livy_statement` with `session_id="{session_id}"` and `code='''{sql_query}'''`.
 2. If execution succeeds (`status="ok"`):
-   - Review the returned schema and preview rows.
+   - Review the returned schema, total rows, and preview rows.
    - Summarize the result and row count.
 3. If execution fails with an ANSI SQL error or runtime exception:
    - Check the `errorCategory`, `errorClass`, and `remediationSteps`.
@@ -495,11 +495,11 @@ async def list_livy_sessions(
 
 
 @mcp.tool
-async def get_livy_session(session_id: int) -> Dict[str, Any]:
+async def get_livy_session(session_id: Union[int, str]) -> Dict[str, Any]:
     """Get details, state, and Spark Connect application ID for a specific Livy-Next session.
     
     Args:
-        session_id: Unique integer ID of the Livy session
+        session_id: Unique integer ID or Spark Connect UUID of the Livy session
     """
     try:
         return await livy_client.get_session(session_id)
@@ -511,17 +511,27 @@ async def get_livy_session(session_id: int) -> Dict[str, Any]:
 async def create_livy_session(
     name: Optional[str] = None,
     kind: str = "spark",
-    proxy_user: Optional[str] = None,
+    proxy_user: Optional[str] = 'sparklens',
+    user_id: Optional[str] = 'sparklens-client',
+    session_id: Optional[str] = None,
+    user_agent: Optional[str] = 'sparklens-client',
+    token: Optional[str] = None,
     conf: Optional[Dict[str, str]] = None,
     jars: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """Create a new interactive session in Livy-Next connecting to Spark Connect.
     
+    Supports Spark Connect multi-tenancy, custom UUID session isolation, and token authentication.
+    
     Args:
         name: Optional descriptive session name
-        kind: Session kind ('spark', 'sql', 'pyspark', 'sparkr', default: 'spark')
-        proxy_user: Optional proxy user to run the session as
-        conf: Optional dictionary of Spark configuration properties
+        kind: spark
+        proxy_user: Optional legacy proxy user to run the session as
+        user_id: Optional user identifier for Spark Connect multi-tenancy (overrides proxy_user, default: 'sparklens-client')
+        session_id: Optional client-specified UUID for Spark Connect session isolation and reconnects
+        user_agent: Client user agent string identifying the caller (default: 'sparklens-client')
+        token: Optional authentication or bearer token forwarded to Spark Connect
+        conf: Optional dictionary of Spark configuration properties (spark.*)
         jars: Optional list of JAR files to include
     """
     try:
@@ -529,6 +539,10 @@ async def create_livy_session(
             name=name,
             kind=kind,
             proxy_user=proxy_user,
+            user_id=user_id,
+            session_id=session_id,
+            user_agent=user_agent,
+            token=token,
             conf=conf,
             jars=jars
         )
@@ -537,11 +551,11 @@ async def create_livy_session(
 
 
 @mcp.tool
-async def delete_livy_session(session_id: int) -> Dict[str, Any]:
-    """Terminate and delete an interactive Livy-Next session.
+async def delete_livy_session(session_id: Union[int, str]) -> Dict[str, Any]:
+    """Terminate and delete an interactive Livy-Next session by integer ID or UUID.
     
     Args:
-        session_id: The ID of the session to terminate
+        session_id: The integer ID or UUID of the session to terminate
     """
     try:
         return await livy_client.delete_session(session_id)
@@ -550,52 +564,70 @@ async def delete_livy_session(session_id: int) -> Dict[str, Any]:
 
 
 @mcp.tool
-async def list_livy_statements(session_id: int) -> Dict[str, Any]:
-    """List all statements executed or queued in a Livy-Next interactive session.
+async def list_livy_statements(
+    session_id: Union[int, str],
+    from_idx: Optional[int] = None,
+    size: Optional[int] = None
+) -> Dict[str, Any]:
+    """List statements executed or queued in a Livy-Next interactive session with optional pagination.
     
     Args:
-        session_id: Unique integer ID of the Livy session
+        session_id: Unique integer ID or UUID of the Livy session
+        from_idx: Optional starting statement offset for pagination
+        size: Optional maximum number of statements to return
     """
     try:
-        return await livy_client.list_statements(session_id)
+        return await livy_client.list_statements(session_id, from_idx=from_idx, size=size)
     except Exception as e:
         return {"error": f"Failed to list statements for session {session_id}: {str(e)}"}
 
 
 @mcp.tool
-async def get_livy_statement(session_id: int, statement_id: int) -> Dict[str, Any]:
-    """Get the execution state, progress, and results of a specific statement in a Livy-Next session.
+async def get_livy_statement(
+    session_id: Union[int, str], 
+    statement_id: int,
+    from_row: Optional[int] = None,
+    size: Optional[int] = None
+) -> Dict[str, Any]:
+    """Get the execution state, progress, and results of a specific statement in a Livy-Next session with optional row pagination.
     
     Args:
-        session_id: The Livy session ID
+        session_id: The Livy session integer ID or UUID
         statement_id: The statement ID within the session
+        from_row: Optional result row offset for pagination
+        size: Optional maximum number of rows to return
     """
     try:
-        return await livy_client.get_statement(session_id, statement_id)
+        return await livy_client.get_statement(session_id, statement_id, from_row=from_row, size=size)
     except Exception as e:
         return {"error": f"Failed to get statement {statement_id} for session {session_id}: {str(e)}"}
 
 
 @mcp.tool
-async def submit_livy_statement(session_id: int, code: str) -> Dict[str, Any]:
-    """Submit code or SQL asynchronously to an interactive Livy-Next session without waiting for completion.
+async def submit_livy_statement(
+    session_id: Union[int, str], 
+    code: str,
+    tags: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Submit code or SQL asynchronously to an interactive Livy-Next session with optional operation tracking tags.
     
     Args:
-        session_id: The Livy session ID to execute in
+        session_id: The Livy session integer ID or UUID to execute in
         code: The SQL query or Spark code to execute
+        tags: Optional list of tags to label and track the statement in Spark Connect
     """
     try:
-        return await livy_client.submit_statement(session_id, code)
+        return await livy_client.submit_statement(session_id, code, tags=tags)
     except Exception as e:
         return {"error": f"Failed to submit statement to session {session_id}: {str(e)}"}
 
 
 @mcp.tool
-async def cancel_livy_statement(session_id: int, statement_id: int) -> Dict[str, Any]:
+async def cancel_livy_statement(session_id: Union[int, str], statement_id: int) -> Dict[str, Any]:
     """Cancel an active or queued statement execution in a Livy-Next session.
     
     Args:
-        session_id: The Livy session ID
+        session_id: The Livy session integer ID or UUID
         statement_id: The statement ID to cancel
     """
     try:
@@ -606,25 +638,33 @@ async def cancel_livy_statement(session_id: int, statement_id: int) -> Dict[str,
 
 @mcp.tool
 async def run_livy_statement(
-    session_id: int,
+    session_id: Union[int, str],
     code: str,
-    timeout_seconds: float = 60.0
+    tags: Optional[List[str]] = None,
+    timeout_seconds: float = 60.0,
+    from_row: Optional[int] = None,
+    size: Optional[int] = None
 ) -> Dict[str, Any]:
     """Submit code or SQL to a Livy-Next session, wait for completion, and return structured output with error diagnosis.
     
-    If an error occurs (such as a Spark 4.0 ANSI SQL error or syntax error), the error is parsed
-    and targeted remediation steps are provided.
+    Supports statement operation tagging, result row pagination, and automatic error classification with targeted remediation.
     
     Args:
-        session_id: The Livy session ID to run within
+        session_id: The Livy session ID (integer ID or Spark Connect UUID) to run within
         code: SQL query or Spark statement to execute
+        tags: Optional list of tags to label and track the statement in Spark Connect
         timeout_seconds: Max seconds to wait for execution to complete (default: 60.0)
+        from_row: Optional result row offset for pagination (default: 0)
+        size: Optional maximum number of rows to return (default: all or server limit)
     """
     try:
         stmt = await livy_client.run_statement_and_wait(
             session_id=session_id,
             code=code,
-            timeout_seconds=timeout_seconds
+            tags=tags,
+            timeout_seconds=timeout_seconds,
+            from_row=from_row,
+            size=size
         )
     except TimeoutError as te:
         return {
@@ -641,6 +681,7 @@ async def run_livy_statement(
     started = stmt.get("started")
     completed = stmt.get("completed")
     duration_ms = (completed - started) if (started and completed) else None
+    stmt_tags = stmt.get("tags") or tags
     output = stmt.get("output") or {}
 
     status = output.get("status")
@@ -657,6 +698,8 @@ async def run_livy_statement(
         "status": status,
         "durationMs": duration_ms,
     }
+    if stmt_tags:
+        summary["tags"] = stmt_tags
 
     if status == "ok" and data:
         if "application/json" in data:
@@ -665,6 +708,12 @@ async def run_livy_statement(
             rows = json_data.get("data", [])
             summary["schema"] = schema.get("fields", [])
             summary["rowCount"] = len(rows)
+            if "total" in json_data:
+                summary["totalRows"] = json_data["total"]
+            if "from" in json_data:
+                summary["fromRow"] = json_data["from"]
+            if "size" in json_data:
+                summary["pageSize"] = json_data["size"]
             summary["previewRows"] = rows[:20]
         elif "text/plain" in data:
             summary["textOutput"] = data["text/plain"]
@@ -685,15 +734,15 @@ async def run_livy_statement(
 
 
 @mcp.tool
-async def diagnose_livy_session(session_id: int) -> Dict[str, Any]:
+async def diagnose_livy_session(session_id: Union[int, str]) -> Dict[str, Any]:
     """Diagnose an active Livy-Next session by correlating session state with Spark History Server diagnostics.
     
-    Retrieves the Spark application ID (`appId`) associated with the Livy session,
+    Retrieves the Spark application ID (`appId`), Spark Connect UI URLs,
     analyzes recent statement executions and failures, and queries the History Server
     to assess overall application execution health.
     
     Args:
-        session_id: The unique integer ID of the Livy-Next session
+        session_id: Unique integer ID or Spark Connect UUID of the Livy-Next session
     """
     try:
         session_data = await livy_client.get_session(session_id)
@@ -701,16 +750,25 @@ async def diagnose_livy_session(session_id: int) -> Dict[str, Any]:
         return {"error": f"Failed to retrieve Livy session {session_id}: {str(e)}"}
 
     app_id = session_data.get("appId")
+    session_uuid = session_data.get("sessionId")
     session_state = session_data.get("state")
     session_kind = session_data.get("kind")
     log = session_data.get("log", [])
     app_info = session_data.get("appInfo", {})
 
+    spark_connect_ui_url = app_info.get("sparkConnectUiUrl")
+    spark_ui_url = app_info.get("sparkUiUrl") or settings.spark_ui_url
+    spark_history_url = app_info.get("sparkHistoryUrl")
+
     result: Dict[str, Any] = {
         "sessionId": session_id,
+        "sessionUUID": session_uuid,
         "state": session_state,
         "kind": session_kind,
         "appId": app_id,
+        "sparkUiUrl": spark_ui_url,
+        "sparkConnectUiUrl": spark_connect_ui_url,
+        "sparkHistoryUrl": spark_history_url,
         "appInfo": app_info,
         "sessionLogTail": log[-10:] if log else [],
     }

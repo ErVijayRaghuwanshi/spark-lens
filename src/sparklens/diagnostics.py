@@ -69,6 +69,14 @@ def categorize_failure(
             ]
             return "SCHEMA_MISMATCH", error_class, remediation
 
+        if any(conn_err in error_class for conn_err in ["INVALID_HANDLE", "SESSION_CLOSED"]):
+            remediation = [
+                f"Spark Connect session was invalidated or terminated on server: {error_class}.",
+                "The remote Spark Connect server closed the session handle or timed out.",
+                "Create a new session using `create_livy_session` or reconnect using the designated `session_id` UUID."
+            ]
+            return "SPARK_CONNECT_DISCONNECT", error_class, remediation
+
     # 2. Out of Memory Errors
     if any(oom in reason_lower for oom in ["outofmemoryerror", "java heap space", "exceeded memory limits", "oomkilled", "gc overhead limit exceeded"]):
         remediation = [
@@ -104,6 +112,15 @@ def categorize_failure(
             "Increase `spark.sql.broadcastTimeout` (e.g. from 300s to 600s) or turn off automatic broadcast threshold if table is large."
         ]
         return "BROADCAST_TIMEOUT", error_class, remediation
+
+    # 6. Spark Connect Server Disconnect / Channel Closure
+    if any(term in reason_lower for term in ["session_closed", "invalid_handle", "transport is closing", "connection reset by peer", "transientfailure"]) or ("unavailable" in reason_lower and "connect" in reason_lower):
+        remediation = [
+            "Spark Connect session connection was severed or terminated on the server.",
+            "The Spark Connect server closed this session or the driver was restarted.",
+            "Create a new session using `create_livy_session` or check Spark Connect server logs."
+        ]
+        return "SPARK_CONNECT_DISCONNECT", error_class, remediation
 
     return "GENERIC_FAILURE", error_class, [
         "Inspect task exception stack trace and driver logs for detailed failure diagnostics."

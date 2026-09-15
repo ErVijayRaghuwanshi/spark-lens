@@ -159,15 +159,15 @@ Add SparkLens to your `claude_desktop_config.json` (`~/Library/Application Suppo
 | `find_data_skew` | Diagnostic | Analyzes task runtime distribution and memory/disk spills with version-aware tuning advice. |
 | `check_spark_compatibility` | Migration | Audits Spark 3.x applications against Spark 4.x breaking changes & deprecated configs. |
 | `list_livy_sessions` | Livy Session | Lists active interactive sessions in Apache Livy-Next (Spark Connect). |
-| `get_livy_session` | Livy Session | Gets session details, status, kind, and linked Spark `appId`. |
-| `create_livy_session` | Livy Session | Creates an interactive session (`spark`, `sql`, `pyspark`). |
-| `delete_livy_session` | Livy Session | Terminates and cleans up an interactive session. |
-| `list_livy_statements` | Livy Statement | Lists statements submitted to a Livy session. |
-| `get_livy_statement` | Livy Statement | Retrieves statement execution progress, status, and output. |
-| `submit_livy_statement` | Livy Statement | Submits SQL/code asynchronously to a session. |
+| `get_livy_session` | Livy Session | Gets session details, status, kind, Spark Connect UI URL, and linked Spark `appId` by integer ID or UUID. |
+| `create_livy_session` | Livy Session | Creates an interactive session (`spark`, `pyspark`, `sparkr`) with multi-tenancy (`userId`), custom UUID isolation, and auth tokens. |
+| `delete_livy_session` | Livy Session | Terminates and cleans up an interactive session by integer ID or UUID. |
+| `list_livy_statements` | Livy Statement | Lists statements submitted to a Livy session with statement pagination. |
+| `get_livy_statement` | Livy Statement | Retrieves statement execution progress, status, and output with row pagination. |
+| `submit_livy_statement` | Livy Statement | Submits SQL/code asynchronously to a session with optional operation tracking tags. |
 | `cancel_livy_statement` | Livy Statement | Cancels an ongoing statement execution. |
-| `run_livy_statement` | Livy Execution | Submits SQL/code, polls for completion, and returns structured schema/rows or Spark 4 ANSI remediation. |
-| `diagnose_livy_session` | Livy Diagnostic | Correlates a Livy session with Spark History Server application health and statement errors. |
+| `run_livy_statement` | Livy Execution | Submits SQL/code with tags, polls for completion, and returns structured schema/rows (with row pagination) or Spark 4 ANSI / disconnect remediation. |
+| `diagnose_livy_session` | Livy Diagnostic | Correlates a Livy session with Spark History Server application health, statement errors, and Spark Connect Web UI links. |
 
 ---
 
@@ -177,8 +177,8 @@ Add SparkLens to your `claude_desktop_config.json` (`~/Library/Application Suppo
 - `optimize_application`: Guides an LLM through performance auditing, AQE tuning, and skew mitigation.
 - `audit_spark4_migration`: Generates a Spark 4.0 migration readiness report and remediation checklist.
 - `explain_sql_query`: Explains physical SQL query plans and identifies optimization opportunities.
-- `troubleshoot_livy_session`: Guides an LLM through troubleshooting interactive Livy session errors and correlating with Spark History.
-- `execute_and_verify_sql`: Guides an LLM through executing SQL via Livy-Next, reviewing rows, and remediating ANSI SQL errors.
+- `troubleshoot_livy_session`: Guides an LLM through troubleshooting interactive Livy session errors and correlating with Spark History and Spark Connect UI.
+- `execute_and_verify_sql`: Guides an LLM through executing SQL via Livy-Next, reviewing paginated rows, and remediating ANSI SQL errors.
 
 ---
 

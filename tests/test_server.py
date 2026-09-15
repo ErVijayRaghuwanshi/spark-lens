@@ -315,3 +315,198 @@ async def test_diagnose_livy_session_tool(mock_spark4_env):
     assert "sparkHistoryDiagnostics" in diag
     assert diag["sparkHistoryDiagnostics"]["appName"] == "LivyConnectApp"
 
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_livy_session_tool_connect_identity():
+    uuid_str = "4fa3b455-89c0-449e-bdf7-95f2e62cb3d9"
+    route = respx.post(f"{settings.spark_livy_url}/sessions").respond(
+        status_code=201,
+        json={
+            "id": 8,
+            "sessionId": uuid_str,
+            "userId": "data-user",
+            "userAgent": "spark-lens",
+            "state": "idle",
+            "kind": "spark",
+            "appInfo": {
+                "sparkAppId": "app-test-mcp",
+                "sparkUiUrl": "http://localhost:4141",
+                "sparkConnectUiUrl": f"http://localhost:4141/connect/session/?id={uuid_str}"
+            }
+        }
+    )
+
+    result = await create_livy_session(
+        name="multi-tenant-job",
+        kind="spark",
+        user_id="data-user",
+        session_id=uuid_str,
+        user_agent="spark-lens",
+        token="auth-tok-123"
+    )
+
+    assert route.called
+    sent_json = route.calls.last.request.content.decode("utf-8")
+    assert '"userId":"data-user"' in sent_json or '"userId": "data-user"' in sent_json
+    assert f'"{uuid_str}"' in sent_json
+    assert result["sessionId"] == uuid_str
+    assert result["userId"] == "data-user"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_and_run_livy_statement_uuid():
+    uuid_str = "4fa3b455-89c0-449e-bdf7-95f2e62cb3d9"
+    respx.get(f"{settings.spark_livy_url}/sessions/{uuid_str}").respond(
+        status_code=200,
+        json={"id": 0, "sessionId": uuid_str, "state": "idle", "kind": "spark"}
+    )
+    respx.post(f"{settings.spark_livy_url}/sessions/{uuid_str}/statements").respond(
+        status_code=201,
+        json={"id": 1, "code": "SELECT 'hello'", "state": "waiting"}
+    )
+    respx.get(f"{settings.spark_livy_url}/sessions/{uuid_str}/statements/1").respond(
+        status_code=200,
+        json={
+            "id": 1,
+            "code": "SELECT 'hello'",
+            "state": "available",
+            "output": {
+                "status": "ok",
+                "data": {
+                    "application/json": {
+                        "schema": {"fields": [{"name": "hello", "type": "string"}]},
+                        "data": [["hello"]]
+                    }
+                }
+            },
+            "started": 100,
+            "completed": 150
+        }
+    )
+
+    session_info = await get_livy_session(uuid_str)
+    assert session_info["sessionId"] == uuid_str
+
+    run_result = await run_livy_statement(uuid_str, "SELECT 'hello'")
+    assert run_result["sessionId"] == uuid_str
+    assert run_result["status"] == "ok"
+    assert run_result["rowCount"] == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_run_livy_statement_tool_tags_and_pagination():
+    uuid_str = "session-paginated-123"
+    respx.post(f"{settings.spark_livy_url}/sessions/{uuid_str}/statements").respond(
+        status_code=201,
+        json={"id": 2, "code": "SELECT * FROM df", "state": "waiting", "tags": ["tag-analytics"]}
+    )
+    respx.get(f"{settings.spark_livy_url}/sessions/{uuid_str}/statements/2").respond(
+        status_code=200,
+        json={
+            "id": 2,
+            "code": "SELECT * FROM df",
+            "state": "available",
+            "tags": ["tag-analytics"],
+            "output": {
+                "status": "ok",
+                "data": {
+                    "application/json": {
+                        "schema": {"fields": [{"name": "id", "type": "int"}]},
+                        "data": [[10], [11], [12]],
+                        "total": 50,
+                        "from": 10,
+                        "size": 3
+                    }
+                }
+            },
+            "started": 200,
+            "completed": 250
+        }
+    )
+
+    result = await run_livy_statement(
+        uuid_str,
+        "SELECT * FROM df",
+        tags=["tag-analytics"],
+        from_row=10,
+        size=3
+    )
+
+    assert result["sessionId"] == uuid_str
+    assert result["tags"] == ["tag-analytics"]
+    assert result["totalRows"] == 50
+    assert result["fromRow"] == 10
+    assert result["pageSize"] == 3
+    assert result["rowCount"] == 3
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_run_livy_statement_tool_disconnect_error():
+    respx.post(f"{settings.spark_livy_url}/sessions/5/statements").respond(
+        status_code=201,
+        json={"id": 9, "code": "SELECT 1", "state": "waiting"}
+    )
+    respx.get(f"{settings.spark_livy_url}/sessions/5/statements/9").respond(
+        status_code=200,
+        json={
+            "id": 9,
+            "code": "SELECT 1",
+            "state": "error",
+            "output": {
+                "status": "error",
+                "ename": "StatusRuntimeException",
+                "evalue": "rpc error: code = Unavailable desc = [INVALID_HANDLE.SESSION_CLOSED] The session has been closed or transport is closing",
+                "traceback": ["transport is closing"]
+            }
+        }
+    )
+
+    result = await run_livy_statement(5, "SELECT 1")
+    assert result["sessionId"] == 5
+    assert result["status"] == "error"
+    assert result["errorCategory"] == "SPARK_CONNECT_DISCONNECT"
+    assert result["errorClass"] == "INVALID_HANDLE.SESSION_CLOSED"
+    assert any("reconnect" in step or "create_livy_session" in step for step in result["remediationSteps"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_diagnose_livy_session_tool_with_connect_ui():
+    uuid_str = "6002ebfc-3aaf-4d3b-8f98-07b9ae46a51f"
+    respx.get(f"{settings.spark_livy_url}/sessions/{uuid_str}").respond(
+        status_code=200,
+        json={
+            "id": 0,
+            "sessionId": uuid_str,
+            "state": "idle",
+            "kind": "spark",
+            "appId": "app-livy-connect-99",
+            "log": ["Connected to Spark Connect endpoint"],
+            "appInfo": {
+                "sparkAppId": "app-livy-connect-99",
+                "sparkUiUrl": "http://localhost:4141",
+                "sparkConnectUiUrl": f"http://localhost:4141/connect/session/?id={uuid_str}",
+                "sparkHistoryUrl": "http://localhost:18088/history/app-livy-connect-99"
+            }
+        }
+    )
+    respx.get(f"{settings.spark_livy_url}/sessions/{uuid_str}/statements").respond(
+        status_code=200,
+        json={"total_statements": 0, "statements": []}
+    )
+    respx.get(f"{settings.spark_history_url}/api/v1/applications/app-livy-connect-99").respond(
+        status_code=404
+    )
+
+    diag = await diagnose_livy_session(uuid_str)
+    assert diag["sessionId"] == uuid_str
+    assert diag["sessionUUID"] == uuid_str
+    assert diag["sparkConnectUiUrl"] == f"http://localhost:4141/connect/session/?id={uuid_str}"
+    assert diag["sparkUiUrl"] == "http://localhost:4141"
+    assert diag["sparkHistoryUrl"] == "http://localhost:18088/history/app-livy-connect-99"
+
+

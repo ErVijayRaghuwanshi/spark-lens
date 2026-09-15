@@ -137,10 +137,10 @@ Core Capabilities & Guidelines:
    - When preparing an application for Spark 4.x upgrade, run `check_spark_compatibility` to audit configurations against breaking changes (Java 17 baseline, Scala 2.13, LevelDB shuffle removal, deprecated configs, and default ANSI mode).
 
 5. Interactive Querying & Livy-Next (Spark Connect):
-   - When working with interactive sessions, use `list_livy_sessions`, `get_livy_session`, or `create_livy_session`.
-   - Execute queries or code safely using `run_livy_statement`, which waits for completion and formats tabular results and data previews.
-   - If a statement fails, review the categorized error and remediation steps. Under Spark 4 ANSI mode, suggest rewrite solutions (e.g. null-tolerant functions).
-   - Use `diagnose_livy_session` to bridge interactive session errors and logs with the underlying Spark History Server application diagnostics via `appId`.
+   - Interactive sessions can be referenced by integer ID or Spark Connect UUID strings.
+   - Create sessions with `create_livy_session`, supporting multi-tenancy (`user_id`), custom UUID isolation (`session_id`), client identification (`user_agent`), and authentication tokens (`token`).
+   - Execute queries safely using `run_livy_statement`, which supports statement tagging (`tags`), row-level pagination (`from_row`, `size`), and automatic ANSI error remediation.
+   - Use `diagnose_livy_session` to surface Spark Connect Web UI links (`sparkConnectUiUrl`) and correlate interactive session failures with Spark History Server diagnostics.
 
 6. Output Presentation:
    - Present metrics, schemas, and comparative analyses in clean, structured Markdown tables.
